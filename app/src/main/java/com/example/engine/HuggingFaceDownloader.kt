@@ -44,6 +44,10 @@ class HuggingFaceDownloader(
      * Download a TTS model from Hugging Face Hub.
      * Uses standard huggingface.co resolve endpoint.
      */
+    /**
+     * Download a TTS model from Hugging Face Hub.
+     * Uses standard huggingface.co resolve endpoint with multi-hop redirect resolution.
+     */
     suspend fun downloadModel(model: TtsModelEntity) = withContext(Dispatchers.IO) {
         val modelId = model.id
         updateProgress(
@@ -52,69 +56,66 @@ class HuggingFaceDownloader(
         )
 
         val targetFile = File(modelsDir, "${model.repoId.replace('/', '_')}_${model.fileName}")
+        val tempFile = File(modelsDir, "${model.repoId.replace('/', '_')}_${model.fileName}.tmp")
         val hfUrl = "https://huggingface.co/${model.repoId}/resolve/main/${model.fileName}"
 
         try {
-            val url = URL(hfUrl)
-            val connection = (url.openConnection() as HttpURLConnection).apply {
-                connectTimeout = 15000
-                readTimeout = 30000
-                instanceFollowRedirects = true
-                setRequestProperty("User-Agent", "KokoroVoice-Android/1.0")
-            }
+            val (connection, contentLength) = openStreamWithRedirects(hfUrl)
+            val expectedLength = if (contentLength > 0) contentLength else model.sizeBytes
 
-            val responseCode = connection.responseCode
-            val contentLength = connection.contentLengthLong.let { if (it > 0) it else model.sizeBytes }
-
-            // If response is OK (200), stream content; if offline/test simulation, write model header
             var bytesCopied = 0L
             val startTime = System.currentTimeMillis()
+            var lastUpdateTime = startTime
 
-            if (responseCode in 200..299) {
-                connection.inputStream.use { input ->
-                    FileOutputStream(targetFile).use { output ->
-                        val buffer = ByteArray(32 * 1024)
-                        var read: Int
-                        var lastUpdateTime = startTime
+            connection.inputStream.use { input ->
+                FileOutputStream(tempFile).use { output ->
+                    val buffer = ByteArray(64 * 1024)
+                    var read: Int
 
-                        while (input.read(buffer).also { read = it } != -1) {
-                            output.write(buffer, 0, read)
-                            bytesCopied += read
+                    while (input.read(buffer).also { read = it } != -1) {
+                        output.write(buffer, 0, read)
+                        bytesCopied += read
 
-                            val now = System.currentTimeMillis()
-                            if (now - lastUpdateTime > 200) {
-                                val percent = if (contentLength > 0) ((bytesCopied * 100) / contentLength).toInt().coerceIn(0, 99) else 50
-                                val elapsedSec = (now - startTime) / 1000f
-                                val speed = if (elapsedSec > 0) (bytesCopied / 1024f) / elapsedSec else 0f
+                        val now = System.currentTimeMillis()
+                        if (now - lastUpdateTime > 200) {
+                            val percent = if (expectedLength > 0) {
+                                ((bytesCopied * 100) / expectedLength).toInt().coerceIn(0, 99)
+                            } else 50
+                            val elapsedSec = (now - startTime) / 1000f
+                            val speed = if (elapsedSec > 0) (bytesCopied / 1024f) / elapsedSec else 0f
 
-                                updateProgress(
-                                    modelId,
-                                    DownloadProgress(
-                                        modelId = modelId,
-                                        bytesDownloaded = bytesCopied,
-                                        totalBytes = contentLength,
-                                        percent = percent,
-                                        speedKbps = speed,
-                                        isDownloading = true
-                                    )
+                            updateProgress(
+                                modelId,
+                                DownloadProgress(
+                                    modelId = modelId,
+                                    bytesDownloaded = bytesCopied,
+                                    totalBytes = expectedLength,
+                                    percent = percent,
+                                    speedKbps = speed,
+                                    isDownloading = true
                                 )
-                                lastUpdateTime = now
-                            }
+                            )
+                            lastUpdateTime = now
                         }
                     }
                 }
-            } else {
-                // Offline fallback simulation for local environments
-                targetFile.writeText("ONNX_MODEL_HEADER_${model.id}_${System.currentTimeMillis()}")
-                bytesCopied = model.sizeBytes
             }
+
+            // Verify downloaded binary file size (must be at least 1MB for valid weights)
+            if (tempFile.length() < 100 * 1024) {
+                tempFile.delete()
+                throw RuntimeException("Downloaded payload too small (${tempFile.length()} bytes) - file is corrupt or invalid.")
+            }
+
+            if (targetFile.exists()) targetFile.delete()
+            tempFile.renameTo(targetFile)
 
             // Mark completed in database
             modelDao.updateModel(
                 model.copy(
                     isDownloaded = true,
                     localFilePath = targetFile.absolutePath,
-                    sizeBytes = if (targetFile.length() > 0) targetFile.length() else model.sizeBytes
+                    sizeBytes = targetFile.length()
                 )
             )
 
@@ -122,32 +123,82 @@ class HuggingFaceDownloader(
                 modelId,
                 DownloadProgress(
                     modelId = modelId,
-                    bytesDownloaded = bytesCopied,
-                    totalBytes = contentLength,
+                    bytesDownloaded = targetFile.length(),
+                    totalBytes = targetFile.length(),
                     percent = 100,
                     isDownloading = false,
                     isComplete = true
                 )
             )
         } catch (e: Exception) {
-            // If offline, create valid stub file so app remains 100% testable and operational offline
-            targetFile.writeText("OFFLINE_LOCAL_MODEL_${model.id}")
+            android.util.Log.e("HuggingFaceDownloader", "Download failed for ${model.name}", e)
+            if (tempFile.exists()) tempFile.delete()
+
+            // If an invalid stub exists from a previous bad download, delete it
+            if (targetFile.exists() && targetFile.length() < 1024 * 1024) {
+                targetFile.delete()
+            }
+
             modelDao.updateModel(
                 model.copy(
-                    isDownloaded = true,
-                    localFilePath = targetFile.absolutePath
+                    isDownloaded = false,
+                    localFilePath = null
                 )
             )
+
             updateProgress(
                 modelId,
                 DownloadProgress(
                     modelId = modelId,
-                    percent = 100,
+                    percent = 0,
                     isDownloading = false,
-                    isComplete = true
+                    isComplete = false,
+                    error = e.message ?: "Download connection failed"
                 )
             )
         }
+    }
+
+    private fun openStreamWithRedirects(initialUrl: String): Pair<HttpURLConnection, Long> {
+        var currentUrl = initialUrl
+        var redirects = 0
+        val maxRedirects = 7
+
+        while (redirects < maxRedirects) {
+            val url = URL(currentUrl)
+            val connection = (url.openConnection() as HttpURLConnection).apply {
+                connectTimeout = 20000
+                readTimeout = 45000
+                instanceFollowRedirects = false // Handle cross-domain manually
+                setRequestProperty("User-Agent", "KokoroVoice-Android/1.0")
+                setRequestProperty("Accept-Encoding", "identity")
+            }
+
+            val code = connection.responseCode
+            if (code in 300..399) {
+                val newLocation = connection.getHeaderField("Location")
+                connection.disconnect()
+                if (newLocation != null) {
+                    currentUrl = if (newLocation.startsWith("http")) {
+                        newLocation
+                    } else {
+                        URL(url, newLocation).toString()
+                    }
+                    redirects++
+                    continue
+                }
+            }
+
+            if (code in 200..299) {
+                val length = connection.contentLengthLong
+                return Pair(connection, length)
+            } else {
+                val errorMsg = connection.errorStream?.bufferedReader()?.use { it.readText() } ?: ""
+                connection.disconnect()
+                throw RuntimeException("HTTP $code ${connection.responseMessage}: $errorMsg")
+            }
+        }
+        throw RuntimeException("Exceeded maximum redirects ($redirects) resolving $initialUrl")
     }
 
     /**

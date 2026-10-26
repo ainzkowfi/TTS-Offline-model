@@ -65,4 +65,17 @@ class ExampleRobolectricTest {
         assertEquals("Female", metrics.detectedGender)
         org.junit.Assert.assertTrue("Acoustic energy should be positive", metrics.acousticEnergy > 0f)
     }
+
+    @Test
+    fun engineDiagnosticsManager_initializesChecklistWithAllSubsystems() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val diagnostics = com.example.diagnostics.EngineDiagnosticsManager(context)
+        val report = diagnostics.report.value
+
+        assertEquals(8, report.items.size)
+        org.junit.Assert.assertTrue(report.items.any { it.id == "tts_engine" })
+        org.junit.Assert.assertTrue(report.items.any { it.id == "huggingface_network" })
+        org.junit.Assert.assertTrue(report.items.any { it.id == "model_storage" })
+        org.junit.Assert.assertTrue(report.items.any { it.id == "flac_encoder" })
+    }
 }

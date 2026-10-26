@@ -18,9 +18,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.FolderOpen
@@ -51,8 +53,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.graphics.Color
 import com.example.data.model.TtsModelEntity
 import com.example.engine.DownloadProgress
+import com.example.ui.theme.ElectricViolet
 import com.example.ui.theme.NeonCyan
 import com.example.ui.theme.StatusGreen
 
@@ -66,6 +70,7 @@ fun ModelManagerScreen(
     onDownloadModel: (TtsModelEntity) -> Unit,
     onImportLocalModel: (Uri, String) -> Unit,
     onClearCache: () -> Unit,
+    onOpenDiagnostics: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -263,6 +268,74 @@ fun ModelManagerScreen(
                             color = NeonCyan,
                             style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
                         )
+                    }
+
+                    // Engine Diagnostics & Subsystem Checklist Banner
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(14.dp))
+                            .clickable { onOpenDiagnostics() }
+                            .testTag("open_diagnostics_from_models"),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = ElectricViolet.copy(alpha = 0.12f)
+                        ),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, ElectricViolet.copy(alpha = 0.5f))
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(14.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                modifier = Modifier.weight(1f),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Surface(
+                                    modifier = Modifier.size(40.dp),
+                                    shape = CircleShape,
+                                    color = ElectricViolet
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            imageVector = Icons.Default.Checklist,
+                                            contentDescription = null,
+                                            tint = Color.White,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                }
+
+                                Column {
+                                    Text(
+                                        text = "Subsystem Diagnostics & Checklist",
+                                        style = MaterialTheme.typography.titleSmall.copy(
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                    )
+                                    Text(
+                                        text = "Test TTS engine, voice packages, Hugging Face CDN, and model files",
+                                        style = MaterialTheme.typography.bodySmall.copy(
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    )
+                                }
+                            }
+
+                            Button(
+                                onClick = onOpenDiagnostics,
+                                shape = RoundedCornerShape(8.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = ElectricViolet),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                            ) {
+                                Text("Self-Test", color = Color.White, style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
                     }
                 }
             }

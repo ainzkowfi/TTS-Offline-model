@@ -40,6 +40,21 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
     val downloader = HuggingFaceDownloader(application, modelDao, voiceDao)
     val flacExporter = com.example.audio.FlacAudioExporter(application, ttsEngine)
     val voiceCloneEngine = com.example.engine.VoiceCloneEngine(application, voiceDao)
+    val diagnosticsManager = com.example.diagnostics.EngineDiagnosticsManager(application)
+    val diagnosticsReport = diagnosticsManager.report
+
+    fun runDiagnostics() {
+        viewModelScope.launch {
+            diagnosticsManager.runAllDiagnostics()
+        }
+    }
+
+    fun autoFixCorruptedModels() {
+        viewModelScope.launch {
+            diagnosticsManager.autoFixCorruptedModels()
+            refreshCacheSize()
+        }
+    }
 
     // Books, Models, Voices flows
     val books: StateFlow<List<BookEntity>> = bookDao.getAllBooks()

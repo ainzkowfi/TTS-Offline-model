@@ -14,6 +14,9 @@ interface ModelDao {
     @Query("SELECT * FROM tts_models ORDER BY isSelected DESC, isDownloaded DESC, name ASC")
     fun getAllModels(): Flow<List<TtsModelEntity>>
 
+    @Query("SELECT * FROM tts_models ORDER BY isSelected DESC, isDownloaded DESC, name ASC")
+    suspend fun getAllModelsSync(): List<TtsModelEntity>
+
     @Query("SELECT * FROM tts_models WHERE isSelected = 1 LIMIT 1")
     fun getSelectedModel(): Flow<TtsModelEntity?>
 

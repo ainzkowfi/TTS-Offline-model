@@ -29,6 +29,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AudioFile
 import androidx.compose.material.icons.filled.Cancel
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.DownloadForOffline
 import androidx.compose.material.icons.filled.FormatSize
@@ -105,6 +106,7 @@ fun ReaderScreen(
     onCancelFlacExport: () -> Unit = {},
     onDismissFlacExportDialog: () -> Unit = {},
     onOpenVoiceStudio: () -> Unit,
+    onOpenDiagnostics: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -216,6 +218,18 @@ fun ReaderScreen(
                                 imageVector = if (isDarkMode) Icons.Default.LightMode else Icons.Default.DarkMode,
                                 contentDescription = "Toggle Dark Mode",
                                 tint = if (isDarkMode) StatusAmber else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+
+                        // Core Engine Diagnostics & Checklist Button
+                        IconButton(
+                            onClick = onOpenDiagnostics,
+                            modifier = Modifier.size(40.dp).testTag("diagnostics_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Checklist,
+                                contentDescription = "Core Engine Diagnostics & Checklist",
+                                tint = NeonCyan
                             )
                         }
                     }

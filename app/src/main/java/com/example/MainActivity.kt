@@ -87,6 +87,9 @@ fun MainAppScreen(viewModel: ReaderViewModel) {
     val lookaheadCount by viewModel.lookaheadCount.collectAsStateWithLifecycle()
     val batchPreRenderState by viewModel.batchPreRenderState.collectAsStateWithLifecycle()
     val flacExportProgress by viewModel.flacExportProgress.collectAsStateWithLifecycle()
+    val diagnosticsReport by viewModel.diagnosticsReport.collectAsStateWithLifecycle()
+
+    var showDiagnostics by remember { mutableStateOf(false) }
 
     val books by viewModel.books.collectAsStateWithLifecycle()
     val models by viewModel.models.collectAsStateWithLifecycle()
@@ -207,7 +210,11 @@ fun MainAppScreen(viewModel: ReaderViewModel) {
                         onExportFullAudioToFlac = { viewModel.exportFullAudioToFlac() },
                         onCancelFlacExport = { viewModel.cancelFlacExport() },
                         onDismissFlacExportDialog = { viewModel.dismissFlacExportDialog() },
-                        onOpenVoiceStudio = { currentTab = AppTab.VOICES }
+                        onOpenVoiceStudio = { currentTab = AppTab.VOICES },
+                        onOpenDiagnostics = {
+                            showDiagnostics = true
+                            viewModel.runDiagnostics()
+                        }
                     )
                 }
 
@@ -284,10 +291,26 @@ fun MainAppScreen(viewModel: ReaderViewModel) {
                         onClearCache = {
                             viewModel.clearAudioCache()
                             Toast.makeText(context, "Audio segment cache purged", Toast.LENGTH_SHORT).show()
+                        },
+                        onOpenDiagnostics = {
+                            showDiagnostics = true
+                            viewModel.runDiagnostics()
                         }
                     )
                 }
             }
         }
+    }
+
+    if (showDiagnostics) {
+        com.example.ui.screens.DiagnosticsScreen(
+            report = diagnosticsReport,
+            onRunDiagnostics = { viewModel.runDiagnostics() },
+            onAutoFixModels = {
+                viewModel.autoFixCorruptedModels()
+                Toast.makeText(context, "Corrupted stubs cleaned. You can now redownload real model weights.", Toast.LENGTH_LONG).show()
+            },
+            onClose = { showDiagnostics = false }
+        )
     }
 }

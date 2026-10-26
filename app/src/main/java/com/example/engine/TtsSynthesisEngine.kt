@@ -106,6 +106,8 @@ class TtsSynthesisEngine(
 
         // 2. Try Android High-Fidelity Neural Speech Synthesis
         val targetFile = File(context.cacheDir, "tts_segments/$cacheKey.wav")
+        targetFile.parentFile?.mkdirs()
+
         try {
             val neuralSuccess = synthesizeWithAndroidNeuralTts(chunk.text, voice, effectiveSpeed, targetFile)
             if (neuralSuccess && targetFile.exists() && targetFile.length() > 200) {
@@ -128,56 +130,76 @@ class TtsSynthesisEngine(
         speed: Float,
         outputFile: File
     ): Boolean {
-        // Wait up to 1.5 seconds for TTS engine to be ready
-        val ready = withTimeoutOrNull(1500) { isTtsInitialized.await() } ?: false
-        if (!ready) return false
+        // Wait up to 6 seconds for TTS engine to be ready on cold starts
+        val ready = withTimeoutOrNull(6000) { isTtsInitialized.await() } ?: false
+        if (!ready) {
+            Log.w(TAG, "Android TextToSpeech engine initialization timeout")
+            return false
+        }
 
         val tts = androidTts ?: return false
 
-        val locale = if (voiceProfile.accent.contains("british", ignoreCase = true) || voiceProfile.language.contains("gb", ignoreCase = true)) {
+        // Ensure parent directory exists and clean target file
+        outputFile.parentFile?.mkdirs()
+        if (outputFile.exists()) {
+            outputFile.delete()
+        }
+
+        val requestedLocale = if (voiceProfile.accent.contains("british", ignoreCase = true) || voiceProfile.language.contains("gb", ignoreCase = true)) {
             Locale.UK
         } else {
             Locale.US
         }
 
-        tts.language = locale
+        // Verify locale availability with graceful fallback to US
+        val availability = tts.isLanguageAvailable(requestedLocale)
+        val effectiveLocale = if (availability >= TextToSpeech.LANG_AVAILABLE) {
+            requestedLocale
+        } else {
+            Locale.US
+        }
+
+        tts.language = effectiveLocale
         tts.setPitch(voiceProfile.pitch)
         tts.setSpeechRate(speed)
 
         // Select best matching neural voice from available system voices
-        selectBestNeuralVoice(tts, locale, voiceProfile)
+        selectBestNeuralVoice(tts, effectiveLocale, voiceProfile)
 
         val utteranceId = "kokoro_utt_${System.currentTimeMillis()}_${(100..999).random()}"
 
-        return suspendCancellableCoroutine { continuation ->
-            synchronized(activeUtteranceContinuations) {
-                activeUtteranceContinuations[utteranceId] = { success ->
+        return withTimeoutOrNull(10000) {
+            suspendCancellableCoroutine<Boolean> { continuation ->
+                synchronized(activeUtteranceContinuations) {
+                    activeUtteranceContinuations[utteranceId] = { success ->
+                        if (continuation.isActive) {
+                            continuation.resume(success)
+                        }
+                    }
+                }
+
+                continuation.invokeOnCancellation {
+                    synchronized(activeUtteranceContinuations) {
+                        activeUtteranceContinuations.remove(utteranceId)
+                    }
+                }
+
+                val params = Bundle().apply {
+                    putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, 1.0f)
+                }
+
+                val result = tts.synthesizeToFile(text, params, outputFile, utteranceId)
+                if (result != TextToSpeech.SUCCESS) {
+                    Log.w(TAG, "tts.synthesizeToFile returned error code $result for text: ${text.take(30)}")
+                    synchronized(activeUtteranceContinuations) {
+                        activeUtteranceContinuations.remove(utteranceId)
+                    }
                     if (continuation.isActive) {
-                        continuation.resume(success)
+                        continuation.resume(false)
                     }
                 }
             }
-
-            continuation.invokeOnCancellation {
-                synchronized(activeUtteranceContinuations) {
-                    activeUtteranceContinuations.remove(utteranceId)
-                }
-            }
-
-            val params = Bundle().apply {
-                putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, 1.0f)
-            }
-
-            val result = tts.synthesizeToFile(text, params, outputFile, utteranceId)
-            if (result != TextToSpeech.SUCCESS) {
-                synchronized(activeUtteranceContinuations) {
-                    activeUtteranceContinuations.remove(utteranceId)
-                }
-                if (continuation.isActive) {
-                    continuation.resume(false)
-                }
-            }
-        }
+        } ?: false
     }
 
     private fun selectBestNeuralVoice(
