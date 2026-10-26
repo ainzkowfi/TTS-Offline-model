@@ -1,0 +1,6 @@
+{
+  "name": "Kokoro Voice",
+  "description": "Offline on-device neural TTS reader with Kokoro-82M support, parallel sentence pre-generation, voice imports, and zero-latency segment replay.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
