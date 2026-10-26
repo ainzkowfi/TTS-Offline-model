@@ -62,6 +62,11 @@ import com.example.ui.theme.ElectricViolet
 import com.example.ui.theme.NeonCyan
 import com.example.ui.theme.SoftViolet
 
+import android.net.Uri
+import androidx.compose.material.icons.filled.GraphicEq
+import androidx.compose.ui.graphics.Color
+import com.example.ui.components.VoiceCloneDialog
+
 @Composable
 fun VoiceStudioScreen(
     voices: List<VoiceProfileEntity>,
@@ -69,9 +74,12 @@ fun VoiceStudioScreen(
     onSelectVoice: (VoiceProfileEntity) -> Unit,
     onImportCustomVoice: (String, String, String, Float, Float, Float) -> Unit,
     onPreviewVoice: (VoiceProfileEntity) -> Unit,
+    onCloneVoiceFromUri: (Uri, String, String) -> Unit = { _, _, _ -> },
+    onCloneVoiceFromSamples: (ShortArray, String, String) -> Unit = { _, _, _ -> },
     modifier: Modifier = Modifier
 ) {
     var showCreateDialog by remember { mutableStateOf(false) }
+    var showCloneDialog by remember { mutableStateOf(false) }
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -98,7 +106,7 @@ fun VoiceStudioScreen(
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             item {
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(
                         text = "Voice Studio & Style Vectors",
                         style = MaterialTheme.typography.headlineSmall.copy(
@@ -107,11 +115,77 @@ fun VoiceStudioScreen(
                         )
                     )
                     Text(
-                        text = "Kokoro-82M Multi-Speaker Embeddings & Custom Profiles",
+                        text = "Kokoro-82M Multi-Speaker Embeddings & Inno-Clone Tuner",
                         style = MaterialTheme.typography.bodySmall.copy(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     )
+
+                    // remsky/kokoro-inno-clone-tuner Card
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { showCloneDialog = true }
+                            .testTag("open_inno_clone_button"),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = ElectricViolet.copy(alpha = 0.15f)
+                        ),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, ElectricViolet)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                modifier = Modifier.weight(1f),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Surface(
+                                    modifier = Modifier.size(44.dp),
+                                    shape = CircleShape,
+                                    color = ElectricViolet
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            imageVector = Icons.Default.GraphicEq,
+                                            contentDescription = null,
+                                            tint = Color.White
+                                        )
+                                    }
+                                }
+
+                                Column {
+                                    Text(
+                                        text = "Clone Voice (Inno-Clone)",
+                                        style = MaterialTheme.typography.titleMedium.copy(
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                    )
+                                    Text(
+                                        text = "remsky/kokoro-inno-clone-tuner • Record 5s or pick audio",
+                                        style = MaterialTheme.typography.bodySmall.copy(
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    )
+                                }
+                            }
+
+                            Button(
+                                onClick = { showCloneDialog = true },
+                                shape = RoundedCornerShape(10.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = ElectricViolet),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                            ) {
+                                Text("Clone", color = Color.White, style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold))
+                            }
+                        }
+                    }
                 }
             }
 
@@ -388,4 +462,19 @@ fun VoiceStudioScreen(
             }
         )
     }
+
+    if (showCloneDialog) {
+        VoiceCloneDialog(
+            onDismiss = { showCloneDialog = false },
+            onCloneFromUri = { uri, name, accent ->
+                onCloneVoiceFromUri(uri, name, accent)
+                showCloneDialog = false
+            },
+            onCloneFromSamples = { samples, name, accent ->
+                onCloneVoiceFromSamples(samples, name, accent)
+                showCloneDialog = false
+            }
+        )
+    }
 }
+

@@ -91,6 +91,30 @@ abstract class AppDatabase : RoomDatabase() {
                         isDownloaded = false,
                         isSelected = false,
                         sampleRate = 22050
+                    ),
+                    TtsModelEntity(
+                        id = "remsky/kokoro-inno-clone-tuner",
+                        name = "Kokoro Inno-Clone Tuner (remsky)",
+                        description = "Zero-shot neural speaker enrollment & voice cloning for Kokoro-82M.",
+                        source = "HUGGING_FACE",
+                        repoId = "remsky/kokoro-inno-clone-tuner",
+                        fileName = "tuner.pt",
+                        sizeBytes = 52_400_000L,
+                        isDownloaded = true,
+                        isSelected = false,
+                        sampleRate = 24000
+                    ),
+                    TtsModelEntity(
+                        id = "myshell-ai/MeloTTS-English",
+                        name = "MeloTTS Real-time English",
+                        description = "High-speed multi-accent neural speech synthesizer with natural prosody.",
+                        source = "HUGGING_FACE",
+                        repoId = "myshell-ai/MeloTTS-English",
+                        fileName = "checkpoint.pt",
+                        sizeBytes = 64_800_000L,
+                        isDownloaded = false,
+                        isSelected = false,
+                        sampleRate = 24000
                     )
                 )
             )

@@ -16,7 +16,9 @@ import com.example.domain.SentenceChunk
 import com.example.domain.SentenceSegmenter
 import com.example.engine.HuggingFaceDownloader
 import com.example.engine.TtsSynthesisEngine
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -36,6 +38,8 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
     val ttsEngine = TtsSynthesisEngine(application, audioCacheManager)
     val player = PipelinedAudioPlayer(application, ttsEngine)
     val downloader = HuggingFaceDownloader(application, modelDao, voiceDao)
+    val flacExporter = com.example.audio.FlacAudioExporter(application, ttsEngine)
+    val voiceCloneEngine = com.example.engine.VoiceCloneEngine(application, voiceDao)
 
     // Books, Models, Voices flows
     val books: StateFlow<List<BookEntity>> = bookDao.getAllBooks()
@@ -87,6 +91,11 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
     val batchPreRenderState: StateFlow<BatchPreRenderState> = _batchPreRenderState.asStateFlow()
 
     private var batchJob: kotlinx.coroutines.Job? = null
+
+    private val _flacExportProgress = MutableStateFlow(com.example.audio.FlacExportProgress())
+    val flacExportProgress: StateFlow<com.example.audio.FlacExportProgress> = _flacExportProgress.asStateFlow()
+
+    private var exportJob: kotlinx.coroutines.Job? = null
 
     init {
         // Observe and load initial selected book and voice
@@ -256,28 +265,36 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                 percent = 0
             )
 
-            for ((index, chunk) in chunks.withIndex()) {
-                if (!isActive) break
-                try {
-                    ttsEngine.synthesizeSentence(chunk, voice, _playbackSpeed.value)
-                    val percent = ((index + 1) * 100) / chunks.size
-                    _batchPreRenderState.value = BatchPreRenderState(
-                        isPreRendering = true,
-                        currentSentence = index + 1,
-                        totalSentences = chunks.size,
-                        percent = percent
-                    )
-                } catch (e: Exception) {
-                    android.util.Log.w("ReaderViewModel", "Batch render error at sentence $index", e)
+            try {
+                for ((index, chunk) in chunks.withIndex()) {
+                    ensureActive()
+                    try {
+                        ttsEngine.synthesizeSentence(chunk, voice, _playbackSpeed.value)
+                        val percent = ((index + 1) * 100) / chunks.size
+                        _batchPreRenderState.value = BatchPreRenderState(
+                            isPreRendering = true,
+                            currentSentence = index + 1,
+                            totalSentences = chunks.size,
+                            percent = percent
+                        )
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        android.util.Log.w("ReaderViewModel", "Batch render error at sentence $index", e)
+                    }
                 }
+                refreshCacheSize()
+            } catch (e: CancellationException) {
+                android.util.Log.d("ReaderViewModel", "Batch pre-render cancelled cleanly")
+            } finally {
+                _batchPreRenderState.value = BatchPreRenderState(isPreRendering = false)
             }
-            refreshCacheSize()
-            _batchPreRenderState.value = BatchPreRenderState(isPreRendering = false)
         }
     }
 
     fun cancelBatchPreRender() {
         batchJob?.cancel()
+        batchJob = null
         _batchPreRenderState.value = BatchPreRenderState(isPreRendering = false)
     }
 
@@ -293,6 +310,62 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                 author = parsed.author,
                 content = parsed.content
             )
+        }
+    }
+
+    fun exportFullAudioToFlac() {
+        val book = _currentBook.value ?: return
+        val chunks = _sentenceChunks.value
+        val voice = _selectedVoice.value ?: return
+        if (chunks.isEmpty()) return
+
+        exportJob?.cancel()
+        exportJob = viewModelScope.launch(Dispatchers.Default) {
+            try {
+                flacExporter.exportEbookToFlac(
+                    chunks = chunks,
+                    voice = voice,
+                    speed = _playbackSpeed.value,
+                    bookTitle = book.title,
+                    author = book.author
+                ) { progress ->
+                    _flacExportProgress.value = progress
+                }
+                refreshCacheSize()
+            } catch (e: CancellationException) {
+                android.util.Log.d("ReaderViewModel", "FLAC export job cancelled cleanly")
+            } catch (e: Exception) {
+                android.util.Log.e("ReaderViewModel", "FLAC export failed", e)
+                _flacExportProgress.value = com.example.audio.FlacExportProgress(
+                    errorMessage = e.message ?: "Export failed"
+                )
+            }
+        }
+    }
+
+    fun cancelFlacExport() {
+        exportJob?.cancel()
+        exportJob = null
+        _flacExportProgress.value = com.example.audio.FlacExportProgress()
+    }
+
+    fun dismissFlacExportDialog() {
+        _flacExportProgress.value = com.example.audio.FlacExportProgress()
+    }
+
+    fun cloneVoiceFromAudioUri(uri: Uri, voiceName: String, accent: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val cloned = voiceCloneEngine.cloneVoiceFromUri(uri, voiceName, accent)
+            _selectedVoice.value = cloned
+            updatePlayerContext()
+        }
+    }
+
+    fun cloneVoiceFromAudioSamples(samples: ShortArray, voiceName: String, accent: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val cloned = voiceCloneEngine.cloneVoiceFromSamples(samples, voiceName, accent)
+            _selectedVoice.value = cloned
+            updatePlayerContext()
         }
     }
 

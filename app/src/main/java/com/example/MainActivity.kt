@@ -86,6 +86,7 @@ fun MainAppScreen(viewModel: ReaderViewModel) {
     val isDarkMode by viewModel.isDarkMode.collectAsStateWithLifecycle()
     val lookaheadCount by viewModel.lookaheadCount.collectAsStateWithLifecycle()
     val batchPreRenderState by viewModel.batchPreRenderState.collectAsStateWithLifecycle()
+    val flacExportProgress by viewModel.flacExportProgress.collectAsStateWithLifecycle()
 
     val books by viewModel.books.collectAsStateWithLifecycle()
     val models by viewModel.models.collectAsStateWithLifecycle()
@@ -191,6 +192,7 @@ fun MainAppScreen(viewModel: ReaderViewModel) {
                         currentSpeed = playbackSpeed,
                         lookaheadCount = lookaheadCount,
                         batchPreRenderState = batchPreRenderState,
+                        flacExportProgress = flacExportProgress,
                         isDarkMode = isDarkMode,
                         onToggleDarkMode = { viewModel.toggleDarkMode() },
                         onPlaySentence = { idx -> viewModel.playSentence(idx) },
@@ -202,6 +204,9 @@ fun MainAppScreen(viewModel: ReaderViewModel) {
                         onLookaheadChange = { count -> viewModel.setLookaheadCount(count) },
                         onStartBatchPreRender = { viewModel.startBatchPreRender() },
                         onCancelBatchPreRender = { viewModel.cancelBatchPreRender() },
+                        onExportFullAudioToFlac = { viewModel.exportFullAudioToFlac() },
+                        onCancelFlacExport = { viewModel.cancelFlacExport() },
+                        onDismissFlacExportDialog = { viewModel.dismissFlacExportDialog() },
                         onOpenVoiceStudio = { currentTab = AppTab.VOICES }
                     )
                 }
@@ -247,6 +252,14 @@ fun MainAppScreen(viewModel: ReaderViewModel) {
                             )
                             currentTab = AppTab.READER
                             viewModel.playSentence(0)
+                        },
+                        onCloneVoiceFromUri = { uri, name, accent ->
+                            viewModel.cloneVoiceFromAudioUri(uri, name, accent)
+                            Toast.makeText(context, "Cloning $name from audio...", Toast.LENGTH_SHORT).show()
+                        },
+                        onCloneVoiceFromSamples = { samples, name, accent ->
+                            viewModel.cloneVoiceFromAudioSamples(samples, name, accent)
+                            Toast.makeText(context, "Voice $name cloned successfully!", Toast.LENGTH_SHORT).show()
                         }
                     )
                 }

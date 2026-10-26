@@ -24,7 +24,9 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import android.content.Intent
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AudioFile
 import androidx.compose.material.icons.filled.Cancel
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.DarkMode
@@ -33,7 +35,11 @@ import androidx.compose.material.icons.filled.FormatSize
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -44,6 +50,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -82,6 +89,7 @@ fun ReaderScreen(
     currentSpeed: Float,
     lookaheadCount: Int = 2,
     batchPreRenderState: com.example.ui.ReaderViewModel.BatchPreRenderState = com.example.ui.ReaderViewModel.BatchPreRenderState(),
+    flacExportProgress: com.example.audio.FlacExportProgress = com.example.audio.FlacExportProgress(),
     isDarkMode: Boolean,
     onToggleDarkMode: () -> Unit,
     onPlaySentence: (Int) -> Unit,
@@ -93,9 +101,13 @@ fun ReaderScreen(
     onLookaheadChange: (Int) -> Unit = {},
     onStartBatchPreRender: () -> Unit = {},
     onCancelBatchPreRender: () -> Unit = {},
+    onExportFullAudioToFlac: () -> Unit = {},
+    onCancelFlacExport: () -> Unit = {},
+    onDismissFlacExportDialog: () -> Unit = {},
     onOpenVoiceStudio: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     var readerFontSize by remember { mutableFloatStateOf(17f) }
     val listState = rememberLazyListState()
 
@@ -157,6 +169,18 @@ fun ReaderScreen(
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        // Download Full Audio FLAC Button
+                        IconButton(
+                            onClick = onExportFullAudioToFlac,
+                            modifier = Modifier.size(40.dp).testTag("download_flac_audio_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.AudioFile,
+                                contentDescription = "Download Full Audio (FLAC)",
+                                tint = NeonCyan
+                            )
+                        }
+
                         // Pre-render Entire Book Button
                         IconButton(
                             onClick = onStartBatchPreRender,
@@ -464,5 +488,116 @@ fun ReaderScreen(
                 }
             }
         }
+    }
+
+    // FLAC Export in Progress Dialog
+    if (flacExportProgress.isExporting) {
+        AlertDialog(
+            onDismissRequest = { /* Don't dismiss by clicking outside while exporting */ },
+            title = {
+                Text(
+                    text = "Exporting Full Audio to FLAC",
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                )
+            },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text(
+                        text = "Sentence ${flacExportProgress.currentSentence} of ${flacExportProgress.totalSentences} (${flacExportProgress.percent}%)",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    LinearProgressIndicator(
+                        progress = { flacExportProgress.percent / 100f },
+                        modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)),
+                        color = NeonCyan
+                    )
+                    Text(
+                        text = "Lossless FLAC container • Standalone audio only",
+                        style = MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = onCancelFlacExport,
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                ) {
+                    Text("Cancel", color = MaterialTheme.colorScheme.onSurface)
+                }
+            }
+        )
+    }
+
+    // FLAC Export Completed Dialog
+    if (!flacExportProgress.isExporting && flacExportProgress.exportedUri != null) {
+        val sizeMb = flacExportProgress.fileSizeBytes / (1024f * 1024f)
+        AlertDialog(
+            onDismissRequest = onDismissFlacExportDialog,
+            title = {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.CheckCircle,
+                        contentDescription = null,
+                        tint = StatusGreen
+                    )
+                    Text(
+                        text = "FLAC Audiobook Ready",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                    )
+                }
+            },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = "The entire book audio has been exported into lossless FLAC format (${String.format(java.util.Locale.US, "%.1f", sizeMb)} MB).",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Text(
+                        text = "Saved to Downloads/KokoroVoice for offline listening in any external music or audiobook player.",
+                        style = MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        try {
+                            val intent = Intent(Intent.ACTION_VIEW).apply {
+                                setDataAndType(flacExportProgress.exportedUri, "audio/flac")
+                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            }
+                            context.startActivity(Intent.createChooser(intent, "Play FLAC Audio"))
+                        } catch (e: Exception) {
+                            android.widget.Toast.makeText(context, "Audio saved to Downloads", android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                        onDismissFlacExportDialog()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = NeonCyan)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.PlayArrow,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp),
+                        tint = Color.Black
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Play Audio", color = Color.Black)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = onDismissFlacExportDialog) {
+                    Text("Done")
+                }
+            }
+        )
     }
 }

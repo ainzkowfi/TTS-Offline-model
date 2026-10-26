@@ -1,0 +1,109 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+    inputs:
+      build_type:
+        description: 'Choose which APK build variant to compile'
+        required: true
+        default: 'debug'
+        type: choice
+        options:
+          - 'debug'
+          - 'release'
+          - 'both'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-apk:
+    name: Compile Android APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: 'gradle'
+
+      - name: Grant Execute Permissions for gradlew
+        run: chmod +x gradlew
+
+      - name: Prepare Signing Keystore
+        run: |
+          echo "Setting up keystores for APK signing..."
+          if [ -f "debug.keystore.base64" ]; then
+            base64 -d debug.keystore.base64 > debug.keystore || true
+          fi
+          if [ ! -f "debug.keystore" ]; then
+            keytool -genkey -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+          fi
+          # For release build fallback if custom upload key is not present
+          if [ ! -f "my-upload-key.jks" ]; then
+            cp debug.keystore my-upload-key.jks
+          fi
+
+      - name: Compile APK with Gradle
+        env:
+          KEYSTORE_PATH: ${{ github.workspace }}/my-upload-key.jks
+          STORE_PASSWORD: "android"
+          KEY_PASSWORD: "android"
+        run: |
+          BUILD_TYPE="${{ github.event.inputs.build_type || 'debug' }}"
+          echo "Selected build type: $BUILD_TYPE"
+          
+          if [ "$BUILD_TYPE" = "release" ]; then
+            ./gradlew :app:assembleRelease --no-daemon --stacktrace
+          elif [ "$BUILD_TYPE" = "both" ]; then
+            ./gradlew :app:assembleDebug :app:assembleRelease --no-daemon --stacktrace
+          else
+            ./gradlew :app:assembleDebug --no-daemon --stacktrace
+          fi
+
+      - name: Collect and Rename APK Artifacts
+        run: |
+          mkdir -p build-apk-artifacts
+          
+          # Find and copy all generated APKs
+          find app/build/outputs/apk/ -type f -name "*.apk" | while read -r apk_file; do
+            filename=$(basename "$apk_file")
+            echo "Found APK: $apk_file ($filename)"
+            if [[ "$filename" == *"debug"* ]]; then
+              cp "$apk_file" "build-apk-artifacts/KokoroVoice-debug.apk"
+            elif [[ "$filename" == *"release"* ]]; then
+              cp "$apk_file" "build-apk-artifacts/KokoroVoice-release.apk"
+            else
+              cp "$apk_file" "build-apk-artifacts/$filename"
+            fi
+          done
+          
+          echo "### Generated APK Artifacts" >> $GITHUB_STEP_SUMMARY
+          echo "| File | Size | SHA-256 Checksum |" >> $GITHUB_STEP_SUMMARY
+          echo "| --- | --- | --- |" >> $GITHUB_STEP_SUMMARY
+          for f in build-apk-artifacts/*.apk; do
+            if [ -f "$f" ]; then
+              fname=$(basename "$f")
+              fsize=$(ls -lh "$f" | awk '{print $5}')
+              fsha=$(sha256sum "$f" | awk '{print $1}')
+              echo "| \`$fname\` | $fsize | \`$fsha\` |" >> $GITHUB_STEP_SUMMARY
+            fi
+          done
+
+      - name: Upload APK Artifacts to GitHub
+        uses: actions/upload-artifact@v4
+        with:
+          name: KokoroVoice-APK
+          path: build-apk-artifacts/*.apk
+          retention-days: 30
+          if-no-files-found: error

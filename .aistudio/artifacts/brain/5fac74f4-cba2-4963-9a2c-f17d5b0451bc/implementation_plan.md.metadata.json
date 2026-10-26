@@ -1,6 +1,6 @@
 {
-  "summary":  "Implementation plan for adding PDF and EPUB ebook document extraction, whole-book punctuation pre-rendering and normalization, adjustable pre-generation lookahead slider (1 to 5 sentences), and one-tap background chapter pre-rendering with progress tracking.",
-  "updatedAt":  "2026-10-26T02:30:37.999187283Z",
+  "summary":  "Implementation plan for FLAC audiobook export of full ebook/pdf audio, multi-engine TTS support (Kokoro, Piper, MeloTTS, System), and remsky/kokoro-inno-clone-tuner voice cloning from reference audio clips.",
+  "updatedAt":  "2026-10-26T16:58:09.873351092Z",
   "requestFeedback":  true,
   "userFacing":  true
 }
